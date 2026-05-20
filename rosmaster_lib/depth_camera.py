@@ -1,25 +1,27 @@
 """
 Orbbec Astra depth camera driver for the rosmaster_lib package.
 
-Uses the OpenNI2 SDK bundled in rosmaster_lib/openni2/ to access
-both depth and RGB streams from Orbbec Astra / Astra Pro cameras.
+- Depth stream via OpenNI2 SDK (bundled .so files)
+- RGB stream via OpenCV VideoCapture (/dev/video0)
 
 Basic usage:
     from rosmaster_lib.depth_camera import DepthCamera
 
     cam = DepthCamera()
     depth = cam.get_depth_frame()      # 16-bit depth in mm
-    rgb = cam.get_rgb_frame()           # 8-bit RGB (if available)
+    rgb = cam.get_rgb_frame()           # BGR uint8 image
     cam.release()
 
-    # Save for viewing
-    cv2.imwrite("depth_raw.png", depth)
+    # Or use context manager (auto cleanup):
+    with DepthCamera() as cam:
+        depth, rgb = cam.get_frames()
 """
 
 import os
-import sys
 import logging
+import cv2
 import numpy as np
+import openni2
 
 logger = logging.getLogger('rosmaster_lib.depth_camera')
 
@@ -29,23 +31,21 @@ class DepthCameraError(Exception):
 
 
 class DepthCamera:
-    """Orbbec Astra depth and RGB camera via OpenNI2.
-
-    Bundles the arm64 OpenNI2 shared libraries inside the package
-    so no system-wide installation is needed on Jetson Nano.
+    """Orbbec Astra depth camera via OpenNI2, RGB via OpenCV.
 
     Parameters
     ----------
     openni_lib_dir : str or None
-        Path to the folder containing libOpenNI2.so and OpenNI2/Drivers/.
-        If None, looks inside the rosmaster_lib package at openni2/.
+        Path to folder with libOpenNI2.so. If None, looks in
+        rosmaster_lib/openni2/.
+    rgb_device : int or str
+        OpenCV VideoCapture device for RGB (default 0 = /dev/video0).
     warmup_frames : int
         Number of frames to discard after starting the camera
         to let the sensor stabilize (default 10).
     """
 
-    def __init__(self, openni_lib_dir=None, warmup_frames=10):
-        import openni2  
+    def __init__(self, openni_lib_dir=None, rgb_device=0, warmup_frames=10):
 
         if openni_lib_dir is None:
             openni_lib_dir = self._find_bundled_libs()
@@ -64,22 +64,20 @@ class DepthCamera:
             openni2.unload()
             # Give a helpful hint if udev rules are missing
             hint = ""
-            if not os.path.exists("/etc/udev/rules.d/rosmaster.rules"):
+            if not os.path.exists("/etc/udev/rules.d/99-rosmaster.rules"):
                 hint = (
                     "\n  udev rules not found. Install them once:\n"
                     "    sudo bash install_udev_rules.sh"
                 )
-            elif not os.path.exists("/dev/astra") \
-                 and not any(f.startswith("/dev/astra") for f in os.listdir("/dev/")):
+            elif not any(f.startswith("/dev/astra") for f in os.listdir("/dev/")):
                 hint = (
                     "\n  udev rules are installed but /dev/astra* not found.\n"
                     "  Check USB connection and try:\n"
                     "    sudo udevadm trigger"
                 )
             raise DepthCameraError(
-                "No Orbbec Astra camera detected."
-                "Check USB connection and permissions."
-                + hint
+                "No Orbbec Astra camera detected. "
+                "Check USB connection and permissions." + hint
             )
         logger.info("Found devices: %s", uris)
 
@@ -91,40 +89,33 @@ class DepthCamera:
             openni2.unload()
             raise DepthCameraError(f"Failed to open camera: {e}")
 
-        # Start depth stream
-        try:
-            self._depth_stream = self._dev.create_depth_stream()
-            self._depth_stream.start()
-            self._depth_available = True
-            logger.info("Depth stream started")
-        except Exception as e:
-            self._depth_available = False
-            logger.warning("Could not start depth stream: %s", e)
+        # Start depth stream via OpenNI2
+        self._depth_stream = self._dev.create_depth_stream()
+        self._depth_stream.start()
+        self._depth_available = True
+        logger.info("Depth stream started")
 
-        # Start color (RGB) stream (not all models have this)
-        self._color_stream = None
-        self._color_available = False
-        try:
-            self._color_stream = self._dev.create_color_stream()
-            self._color_stream.start()
-            self._color_available = True
-            logger.info("Color stream started")
-        except Exception as e:
-            logger.info("No color stream available: %s", e)
+        # ── OpenCV for RGB ──
+        self._rgb_cap = cv2.VideoCapture(rgb_device)
+        if not self._rgb_cap.isOpened():
+            logger.warning("Could not open RGB device %s", rgb_device)
+            self._rgb_available = False
+        else:
+            self._rgb_available = True
+            logger.info("RGB capture opened on device %s", rgb_device)
+            # Set a reasonable resolution
+            self._rgb_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self._rgb_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-        if not self._depth_available and not self._color_available:
-            self.release()
-            raise DepthCameraError("No depth or color streams could be started")
-
-        # Warm up — discard initial frames (sensor needs time to stabilize)
+        # Warm up — discard initial frames (depth sensor needs time to stabilize)
         for i in range(warmup_frames):
             try:
-                if self._depth_available:
-                    self._depth_stream.read_frame()
-                if self._color_available:
-                    self._color_stream.read_frame()
+                self._depth_stream.read_frame()
             except Exception:
                 pass
+            if self._rgb_available:
+                self._rgb_cap.read()
+
         logger.info("Camera ready after %d warmup frames", warmup_frames)
 
     def get_depth_frame(self):
@@ -132,13 +123,8 @@ class DepthCamera:
 
         Returns
         -------
-        numpy.ndarray of shape (H, W) with dtype uint16
-            Each pixel is distance in millimeters (0 = invalid/no data).
-            Typical range: 0 to 8000 mm.
-
-        Raises
-        ------
-        DepthCameraError if depth stream is not available.
+        numpy.ndarray of shape (H, W), dtype uint16
+            Distance in millimeters. 0 = invalid. Typical range 0-8000.
         """
         if not self._depth_available:
             raise DepthCameraError("Depth stream is not available")
@@ -151,23 +137,20 @@ class DepthCamera:
         return depth.copy()  # copy so buffer can be reused
 
     def get_rgb_frame(self):
-        """Read the latest RGB (color) frame.
+        """Read the latest RGB frame via OpenCV.
 
         Returns
         -------
-        numpy.ndarray of shape (H, W, 3) with dtype uint8 in BGR format
-        (OpenCV convention), or None if no color stream is available.
+        numpy.ndarray of shape (H, W, 3), dtype uint8, BGR format
+            Or None if RGB is not available.
         """
-        if not self._color_available:
+        if not self._rgb_available:
             return None
 
-        frame = self._color_stream.read_frame()
-        data = frame.get_buffer_as_uint8()
-        rgb = np.ndarray(
-            (frame.height, frame.width, 3), dtype=np.uint8, buffer=data
-        )
-        # OpenNI2 returns RGB, but OpenCV uses BGR — convert
-        return rgb[:, :, ::-1].copy()  # RGB -> BGR + copy
+        ret, frame = self._rgb_cap.read()
+        if ret:
+            return frame
+        return None
 
     def get_frames(self):
         """Read both depth and RGB in one call.
@@ -175,8 +158,7 @@ class DepthCamera:
         Returns
         -------
         tuple of (depth_frame, rgb_frame)
-            depth_frame : ndarray or None
-            rgb_frame : ndarray or None
+            Either may be None.
         """
         depth = self.get_depth_frame() if self._depth_available else None
         rgb = self.get_rgb_frame()
@@ -184,37 +166,35 @@ class DepthCamera:
 
     @property
     def has_rgb(self):
-        """True if the camera provides an RGB stream."""
-        return self._color_available
+        return self._rgb_available
 
     @property
     def has_depth(self):
-        """True if the camera provides a depth stream."""
         return self._depth_available
 
+    # ── Cleanup ────────────────────────────────────────────────
+
     def release(self):
-        """Stop all streams and unload OpenNI2.
-
-        Safe to call multiple times.
-        """
-        import openni2
-
+        """Stop depth stream, release RGB capture, unload OpenNI2."""
         try:
             if self._depth_stream and self._depth_available:
                 self._depth_stream.stop()
         except Exception:
             pass
+
         try:
-            if self._color_stream and self._color_available:
-                self._color_stream.stop()
+            if self._rgb_available and self._rgb_cap:
+                self._rgb_cap.release()
         except Exception:
             pass
+
         try:
             openni2.unload()
         except Exception:
             pass
+
         self._depth_available = False
-        self._color_available = False
+        self._rgb_available = False
         logger.info("Camera released")
 
     def __enter__(self):
@@ -228,10 +208,7 @@ class DepthCamera:
 
     @staticmethod
     def _find_bundled_libs():
-        """Locate the bundled OpenNI2 arm64 library folder.
-
-        Searches relative to this file first, then common locations.
-        """
+        """Locate the bundled OpenNI2 arm64 library folder."""
         here = os.path.dirname(os.path.abspath(__file__))
         candidates = [
             os.path.join(here, "openni2"),
@@ -241,8 +218,7 @@ class DepthCamera:
         ]
         for path in candidates:
             full = os.path.abspath(path)
-            so_file = os.path.join(full, "libOpenNI2.so")
-            if os.path.isfile(so_file):
+            if os.path.isfile(os.path.join(full, "libOpenNI2.so")):
                 return full
 
         raise DepthCameraError(
@@ -250,9 +226,10 @@ class DepthCamera:
             "Expected libOpenNI2.so in rosmaster_lib/openni2/"
         )
 
+
     @staticmethod
     def depth_to_colormap(depth_array, max_dist_mm=5000):
-        """Convert a 16-bit depth array to a colorized 8-bit image.
+        """Convert 16-bit depth to a colorized 8-bit BGR image.
 
         Parameters
         ----------
@@ -265,7 +242,6 @@ class DepthCamera:
         -------
         ndarray of shape (H, W, 3), dtype uint8, BGR format
         """
-        import cv2
 
         # Clip and scale to 0-255
         scaled = np.clip(depth_array, 0, max_dist_mm).astype(np.float32)
