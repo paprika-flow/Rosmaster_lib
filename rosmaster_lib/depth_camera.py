@@ -35,13 +35,23 @@ class DepthCamera:
         rosmaster_lib/openni2/.
     rgb_device : int or str
         OpenCV VideoCapture device for RGB (default /dev/astra_rgb).
+    rgb_width : int or None
+        Desired RGB frame width. None = use camera default.
+    rgb_height : int or None
+        Desired RGB frame height. None = use camera default.
     warmup_frames : int
         Number of frames to discard after starting the camera
         to let the sensor stabilize (default 10).
+    flip_depth : bool
+        Horizontally mirror the depth frame to correct for
+        camera orientation (default True).
     """
 
-    def __init__(self, openni_lib_dir=None, rgb_device="/dev/astra_rgb", warmup_frames=10):
+    def __init__(self, openni_lib_dir=None, rgb_device="/dev/astra_rgb",
+                 rgb_width=None, rgb_height=None, warmup_frames=10,
+                 flip_depth=True):
         warmup_frames = max(0, min(warmup_frames, 100))
+        self._flip_depth = flip_depth
 
         if openni_lib_dir is None:
             openni_lib_dir = self._find_bundled_libs()
@@ -83,8 +93,10 @@ class DepthCamera:
         else:
             self._rgb_available = True
             logger.info("RGB capture opened on %s", rgb_device)
-            self._rgb_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self._rgb_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            if rgb_width and rgb_height:
+                self._rgb_cap.set(cv2.CAP_PROP_FRAME_WIDTH, rgb_width)
+                self._rgb_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, rgb_height)
+                logger.info("RGB resolution set to %dx%d", rgb_width, rgb_height)
 
         for _ in range(warmup_frames):
             try:
@@ -112,7 +124,10 @@ class DepthCamera:
         depth = np.ndarray(
             (frame.height, frame.width), dtype=np.uint16, buffer=data
         )
-        return depth.copy()
+        depth = depth.copy()
+        if self._flip_depth:
+            depth = cv2.flip(depth, 1)
+        return depth
 
     def get_rgb_frame(self):
         """Read the latest RGB frame via OpenCV.
