@@ -39,13 +39,13 @@ class DepthCamera:
         Path to folder with libOpenNI2.so. If None, looks in
         rosmaster_lib/openni2/.
     rgb_device : int or str
-        OpenCV VideoCapture device for RGB (default 0 = /dev/video0).
+        OpenCV VideoCapture device for RGB (default auto: finds symlink or falls back to 0).
     warmup_frames : int
         Number of frames to discard after starting the camera
         to let the sensor stabilize (default 10).
     """
 
-    def __init__(self, openni_lib_dir=None, rgb_device=0, warmup_frames=10):
+    def __init__(self, openni_lib_dir=None, rgb_device="auto", warmup_frames=10):
         warmup_frames = max(0, min(warmup_frames, 100))
 
         if openni_lib_dir is None:
@@ -97,6 +97,8 @@ class DepthCamera:
         logger.info("Depth stream started")
 
         # ── OpenCV for RGB ──
+        if rgb_device == "auto":
+            rgb_device = self._find_rgb_device()
         self._rgb_cap = cv2.VideoCapture(rgb_device)
         if not self._rgb_cap.isOpened():
             logger.warning("Could not open RGB device %s", rgb_device)
@@ -231,6 +233,39 @@ class DepthCamera:
             "Expected libOpenNI2.so in rosmaster_lib/openni2/"
         )
 
+
+    @staticmethod
+    def _find_rgb_device():
+        """Find the Orbbec Astra RGB video device.
+
+        Tries in order:
+          1. /dev/astra_rgb (udev symlink)
+          2. Search /sys/class/video4linux/ for any device
+          3. Fall back to /dev/video0
+
+        Returns a device index (int) or path (str) for VideoCapture.
+        """
+        if os.path.exists("/dev/astra_rgb"):
+            logger.info("Found RGB device: /dev/astra_rgb (udev)")
+            return "/dev/astra_rgb"
+
+        v4l_base = "/sys/class/video4linux"
+        if os.path.isdir(v4l_base):
+            for entry in sorted(os.listdir(v4l_base)):
+                name_path = os.path.join(v4l_base, entry, "name")
+                if os.path.isfile(name_path):
+                    try:
+                        with open(name_path) as f:
+                            name = f.read().strip().lower() #name might be something like "USB 2.0 Camera"
+                        if "camera" in name: 
+                            dev_num = entry.replace("video", "")
+                            logger.info("Found RGB device: /dev/video%s (%s)", dev_num, name)
+                            return int(dev_num)
+                    except Exception:
+                        continue
+
+        logger.info("No devices found, using /dev/video0")
+        return 0
 
     @staticmethod
     def depth_to_colormap(depth_array, max_dist_mm=5000):
