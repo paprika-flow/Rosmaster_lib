@@ -46,6 +46,7 @@ class DepthCamera:
     """
 
     def __init__(self, openni_lib_dir=None, rgb_device=0, warmup_frames=10):
+        warmup_frames = max(0, min(warmup_frames, 100))
 
         if openni_lib_dir is None:
             openni_lib_dir = self._find_bundled_libs()
@@ -160,7 +161,12 @@ class DepthCamera:
         tuple of (depth_frame, rgb_frame)
             Either may be None.
         """
-        depth = self.get_depth_frame() if self._depth_available else None
+        depth = None
+        if self._depth_available:
+            try:
+                depth = self.get_depth_frame()
+            except DepthCameraError:
+                depth = None
         rgb = self.get_rgb_frame()
         return depth, rgb
 
@@ -176,6 +182,10 @@ class DepthCamera:
 
     def release(self):
         """Stop depth stream, release RGB capture, unload OpenNI2."""
+        if getattr(self, '_released', False):
+            return
+        self._released = True
+
         try:
             if self._depth_stream and self._depth_available:
                 self._depth_stream.stop()
@@ -185,11 +195,6 @@ class DepthCamera:
         try:
             if self._rgb_available and self._rgb_cap:
                 self._rgb_cap.release()
-        except Exception:
-            pass
-
-        try:
-            openni2.unload()
         except Exception:
             pass
 
@@ -242,6 +247,7 @@ class DepthCamera:
         -------
         ndarray of shape (H, W, 3), dtype uint8, BGR format
         """
+        max_dist_mm = max(max_dist_mm, 1)
 
         # Clip and scale to 0-255
         scaled = np.clip(depth_array, 0, max_dist_mm).astype(np.float32)
