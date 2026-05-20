@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────────────────────
 # Rosmaster robot — udev rules for all USB devices
 # Copy to /etc/udev/rules.d/ with:
-#   sudo cp 558-rosmaster.rules /etc/udev/rules.d/
+#   sudo cp rosmaster.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 #   sudo udevadm trigger
 # ──────────────────────────────────────────────────────────────
@@ -25,4 +25,4 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666
 
 # ── Rosmaster Motor Board (if using USB-serial) ───────────────
 # Creates: /dev/rosmaster
-KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0777", SYMLINK+="rosmaster"
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="rosmaster_driver"

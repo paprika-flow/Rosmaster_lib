@@ -1,13 +1,12 @@
 #!/bin/bash
 # ──────────────────────────────────────────────────────────────
 # Install udev rules for Rosmaster robot USB devices.
-# Run ONCE per robot:
 #   bash install_udev_rules.sh
 # ──────────────────────────────────────────────────────────────
 
 set -e
 
-RULES_FILE="rosmaster.rules"
+RULES_FILE="99-rosmaster.rules"
 RULES_DEST="/etc/udev/rules.d/rosmaster.rules"
 
 # Must be root
@@ -38,10 +37,10 @@ udevadm control --reload-rules
 udevadm trigger
 
 echo ""
-echo "Done! Devices should now be accessible as:"
+echo "Devices should now be accessible as:"
 echo "  /dev/astra*      — Orbbec depth camera"
 echo "  /dev/rplidar     — RPLidar"
-echo "  /dev/rosmaster   — Motor board (if using USB)"
+echo "  /dev/rosmaster_driver   — Motor board (if using USB)"
 echo ""
 echo "Verify with: ls -la /dev/astra* /dev/rplidar /dev/rosmaster"
 
