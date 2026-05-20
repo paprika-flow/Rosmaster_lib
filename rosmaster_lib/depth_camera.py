@@ -2,19 +2,14 @@
 Orbbec Astra depth camera driver for the rosmaster_lib package.
 
 - Depth stream via OpenNI2 SDK (bundled .so files)
-- RGB stream via OpenCV VideoCapture (/dev/video0)
+- RGB stream via OpenCV VideoCapture
 
-Basic usage:
+Usage:
     from rosmaster_lib.depth_camera import DepthCamera
 
-    cam = DepthCamera()
-    depth = cam.get_depth_frame()      # 16-bit depth in mm
-    rgb = cam.get_rgb_frame()           # BGR uint8 image
-    cam.release()
-
-    # Or use context manager (auto cleanup):
     with DepthCamera() as cam:
-        depth, rgb = cam.get_frames()
+        depth = cam.get_depth_frame()
+        rgb = cam.get_rgb_frame()
 """
 
 import os
@@ -39,13 +34,13 @@ class DepthCamera:
         Path to folder with libOpenNI2.so. If None, looks in
         rosmaster_lib/openni2/.
     rgb_device : int or str
-        OpenCV VideoCapture device for RGB (default auto: finds symlink or falls back to 0).
+        OpenCV VideoCapture device for RGB (default /dev/astra_rgb).
     warmup_frames : int
         Number of frames to discard after starting the camera
         to let the sensor stabilize (default 10).
     """
 
-    def __init__(self, openni_lib_dir=None, rgb_device="auto", warmup_frames=10):
+    def __init__(self, openni_lib_dir=None, rgb_device="/dev/astra_rgb", warmup_frames=10):
         warmup_frames = max(0, min(warmup_frames, 100))
 
         if openni_lib_dir is None:
@@ -59,30 +54,16 @@ class DepthCamera:
         logger.info("Initializing OpenNI2 from %s", openni_lib_dir)
         openni2.initialize(openni_lib_dir)
 
-        # Check for connected devices
         uris = openni2.Device.enumerate_uris()
         if not uris:
             openni2.unload()
-            # Give a helpful hint if udev rules are missing
-            hint = ""
-            if not os.path.exists("/etc/udev/rules.d/99-rosmaster.rules"):
-                hint = (
-                    "\n  udev rules not found. Install them once:\n"
-                    "    sudo bash install_udev_rules.sh"
-                )
-            elif not any(f.startswith("/dev/astra") for f in os.listdir("/dev/")):
-                hint = (
-                    "\n  udev rules are installed but /dev/astra* not found.\n"
-                    "  Check USB connection and try:\n"
-                    "    sudo udevadm trigger"
-                )
             raise DepthCameraError(
                 "No Orbbec Astra camera detected. "
-                "Check USB connection and permissions." + hint
+                "Check connection and udev rules:\n"
+                "  sudo bash install_udev_rules.sh"
             )
         logger.info("Found devices: %s", uris)
 
-        # Open the camera
         try:
             self._dev = openni2.Device.open_any()
             logger.info("Camera opened: %s", self._dev.get_device_info())
@@ -90,28 +71,22 @@ class DepthCamera:
             openni2.unload()
             raise DepthCameraError(f"Failed to open camera: {e}")
 
-        # Start depth stream via OpenNI2
         self._depth_stream = self._dev.create_depth_stream()
         self._depth_stream.start()
         self._depth_available = True
         logger.info("Depth stream started")
 
-        # ── OpenCV for RGB ──
-        if rgb_device == "auto":
-            rgb_device = self._find_rgb_device()
         self._rgb_cap = cv2.VideoCapture(rgb_device)
         if not self._rgb_cap.isOpened():
             logger.warning("Could not open RGB device %s", rgb_device)
             self._rgb_available = False
         else:
             self._rgb_available = True
-            logger.info("RGB capture opened on device %s", rgb_device)
-            # Set a reasonable resolution
+            logger.info("RGB capture opened on %s", rgb_device)
             self._rgb_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self._rgb_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-        # Warm up — discard initial frames (depth sensor needs time to stabilize)
-        for i in range(warmup_frames):
+        for _ in range(warmup_frames):
             try:
                 self._depth_stream.read_frame()
             except Exception:
@@ -127,7 +102,7 @@ class DepthCamera:
         Returns
         -------
         numpy.ndarray of shape (H, W), dtype uint16
-            Distance in millimeters. 0 = invalid. Typical range 0-8000.
+            Distance in millimeters. 0 = invalid.
         """
         if not self._depth_available:
             raise DepthCameraError("Depth stream is not available")
@@ -137,7 +112,7 @@ class DepthCamera:
         depth = np.ndarray(
             (frame.height, frame.width), dtype=np.uint16, buffer=data
         )
-        return depth.copy()  # copy so buffer can be reused
+        return depth.copy()
 
     def get_rgb_frame(self):
         """Read the latest RGB frame via OpenCV.
@@ -180,10 +155,8 @@ class DepthCamera:
     def has_depth(self):
         return self._depth_available
 
-    # ── Cleanup ────────────────────────────────────────────────
-
     def release(self):
-        """Stop depth stream, release RGB capture, unload OpenNI2."""
+        """Stop depth stream, release RGB capture."""
         if getattr(self, '_released', False):
             return
         self._released = True
@@ -233,61 +206,10 @@ class DepthCamera:
             "Expected libOpenNI2.so in rosmaster_lib/openni2/"
         )
 
-
-    @staticmethod
-    def _find_rgb_device():
-        """Find the Orbbec Astra RGB video device.
-
-        Tries in order:
-          1. /dev/astra_rgb (udev symlink)
-          2. Search /sys/class/video4linux/ for any device
-          3. Fall back to /dev/video0
-
-        Returns a device index (int) or path (str) for VideoCapture.
-        """
-        if os.path.exists("/dev/astra_rgb"):
-            logger.info("Found RGB device: /dev/astra_rgb (udev)")
-            return "/dev/astra_rgb"
-
-        v4l_base = "/sys/class/video4linux"
-        if os.path.isdir(v4l_base):
-            for entry in sorted(os.listdir(v4l_base)):
-                name_path = os.path.join(v4l_base, entry, "name")
-                if os.path.isfile(name_path):
-                    try:
-                        with open(name_path) as f:
-                            name = f.read().strip().lower() #name might be something like "USB 2.0 Camera"
-                        if "camera" in name: 
-                            dev_num = entry.replace("video", "")
-                            logger.info("Found RGB device: /dev/video%s (%s)", dev_num, name)
-                            return int(dev_num)
-                    except Exception:
-                        continue
-
-        logger.info("No devices found, using /dev/video0")
-        return 0
-
     @staticmethod
     def depth_to_colormap(depth_array, max_dist_mm=5000):
-        """Convert 16-bit depth to a colorized 8-bit BGR image.
-
-        Parameters
-        ----------
-        depth_array : ndarray of uint16
-            Depth in millimeters.
-        max_dist_mm : int
-            Distances beyond this are clipped (default 5000 mm / 5 m).
-
-        Returns
-        -------
-        ndarray of shape (H, W, 3), dtype uint8, BGR format
-        """
+        """Convert 16-bit depth to a colorized 8-bit BGR image."""
         max_dist_mm = max(max_dist_mm, 1)
-
-        # Clip and scale to 0-255
         scaled = np.clip(depth_array, 0, max_dist_mm).astype(np.float32)
         scaled = (scaled / max_dist_mm * 255).astype(np.uint8)
-
-        # Apply jet colormap (blue=near, red=far)
         return cv2.applyColorMap(scaled, cv2.COLORMAP_JET)
-
