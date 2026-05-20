@@ -42,15 +42,8 @@ echo "  /dev/astra*      — Orbbec depth camera"
 echo "  /dev/rplidar     — RPLidar"
 echo "  /dev/rosmaster_driver   — Motor board (if using USB)"
 echo ""
-echo "Verify with: ls -la /dev/astra* /dev/rplidar /dev/rosmaster"
-
-# ── Help: find your USB device IDs ───────────────────────────
+echo "Verification (names should point to a real device):"
 echo ""
-echo "---"
-echo "If /dev/rplidar didn't appear, find your lidar's USB IDs:"
-echo "  1. Unplug the lidar"
-echo "  2. Run: ls /dev/ttyUSB*"
-echo "  3. Plug it back in"
-echo "  4. Run: ls /dev/ttyUSB*  (note the new one)"
-echo "  5. Run: udevadm info -a -n /dev/ttyUSB0  | grep -i 'idVendor\\|idProduct'"
-echo "  6. Edit rosmaster.rules with the correct IDs, then run this script again"
+ls -la /dev/astra /dev/astra_rgb /dev/rplidar /dev/rosmaster_driver
+
+
