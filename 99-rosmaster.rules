@@ -10,7 +10,7 @@ SUBSYSTEM=="usb", ATTR{idProduct}=="060f", ATTR{idVendor}=="2bc5", MODE:="0666",
 
 # The video stream 
 # Creates: /dev/astra_rgb
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2bc5", ATTRS{idProduct}=="050f", ATTR{name}=="USB 2.0 Camera", MODE="0666", OWNER="root", GROUP="video", SYMLINK+="astro_pro_plus_rgb"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2bc5", ATTRS{idProduct}=="050f", ATTR{name}=="USB 2.0 Camera", MODE="0666", OWNER="root", GROUP="video", SYMLINK+="astra_rgb"
 
 #  RPLidar A1 / CP2102 USB-to-Serial
 # Creates: /dev/rplidar
