@@ -2,6 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='rosmaster_lib',
+    author='Biorobotics Lab - Clement Joseph under faculty mentor, Dr.Alfredo Weitzenfeld. Based on Rosmaster_Lib and other packages for Rosmaster Robot by Yahboom Team',
     version='1.0.0',
     packages=find_packages(),
     install_requires=[

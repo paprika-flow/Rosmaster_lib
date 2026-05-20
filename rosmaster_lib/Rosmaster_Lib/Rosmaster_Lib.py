@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
+# Rosmaster_Lib bundled with this package is (c) Yahboom Team.
+# Used under the terms provided with their hardware product.
+# See: https://github.com/YahboomTechnology/ROSMASTERX3/blob/main/04.X3-ROS2-Tutorials/05.ROSMASTER%20Basic%20course/3.%20Install%20the%20Rosmaster%20driver%20library.pdf
+
 import struct
 import time
 import serial
@@ -11,7 +15,7 @@ import threading
 class Rosmaster(object):
     __uart_state = 0
 
-    def __init__(self, car_type=1, com="/dev/myserial", delay=.002, debug=False):
+    def __init__(self, car_type=1, com="/dev/rosmaster_driver", delay=.002, debug=False):
         # com = "COM30"
         # com="/dev/ttyTHS1"
         # com="/dev/ttyUSB0"
