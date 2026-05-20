@@ -15,7 +15,7 @@ import threading
 class Rosmaster(object):
     __uart_state = 0
 
-    def __init__(self, car_type=1, com="/dev/rosmaster_driver", delay=.002, debug=False):
+    def __init__(self, car_type=1, com="/dev/myserial", delay=.002, debug=False):
         # com = "COM30"
         # com="/dev/ttyTHS1"
         # com="/dev/ttyUSB0"
