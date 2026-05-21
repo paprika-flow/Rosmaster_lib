@@ -10,7 +10,7 @@ from rosmaster_lib import Robot, Lidar, DepthCamera, Chassis
 print("=== Robot Hardware Test ===\n")
 
 # 1. Chassis
-print("[1/3] Testing chassis...")
+print("Testing chassis")
 try:
     with Chassis() as bot:
         version = bot.get_version()
@@ -23,7 +23,7 @@ except Exception as e:
     print(f"  FAILED: {e}")
 
 # 2. Lidar
-print("\n[2/3] Testing lidar...")
+print("\nTesting lidar")
 try:
     with Lidar() as lidar:
         info = lidar.get_info()
@@ -35,7 +35,7 @@ except Exception as e:
     print(f"  FAILED: {e}")
 
 # 3. Camera
-print("\n[3/3] Testing camera...")
+print("\nTesting camera")
 try:
     with DepthCamera() as cam:
         depth = cam.get_depth_frame()
@@ -47,4 +47,4 @@ try:
 except Exception as e:
     print(f"  FAILED: {e}")
 
-print("\n=== Done ===")
+print("\nTest Finished.")
