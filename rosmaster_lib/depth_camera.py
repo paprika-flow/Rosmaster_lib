@@ -16,7 +16,7 @@ import os
 import logging
 import cv2
 import numpy as np
-import openni2
+from openni import openni2
 
 logger = logging.getLogger('rosmaster_lib.depth_camera')
 
@@ -206,11 +206,13 @@ class DepthCamera:
         """Locate the bundled OpenNI2 arm64 library folder."""
         here = os.path.dirname(os.path.abspath(__file__))
         candidates = [
+            here,
             os.path.join(here, "openni2"),
             os.path.join(here, "openni2", "Arm64"),
             os.path.join(here, "openni2", "arm", "Arm64"),
             os.path.join(here, "..", "openni2"),
         ]
+
         for path in candidates:
             full = os.path.abspath(path)
             if os.path.isfile(os.path.join(full, "libOpenNI2.so")):
