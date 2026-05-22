@@ -19,7 +19,6 @@ logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
 
-# ── RGB (always on, raw OpenCV) ──
 rgb_cap = cv2.VideoCapture(0)
 rgb_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 rgb_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -28,7 +27,6 @@ frame_lock = threading.Lock()
 latest_rgb = None
 latest_depth = None
 
-# ── Depth (lazy init, toggled from web) ──
 depth_camera = None
 depth_on = False
 depth_lock = threading.Lock()
@@ -68,7 +66,6 @@ def depth_loop():
                 latest_depth = buffer.tobytes()
 
 
-# ── Routes ───────────────────────────────────────────────────
 
 @app.route("/")
 def index():
